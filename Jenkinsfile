@@ -14,8 +14,8 @@ pipeline {
     SERVICE_DEV  = "myapp-dev"
     SERVICE_PROD = "myapp-prod"
   }
-  stages {
 
+  stages {
     stage('Checkout') {
       steps {
         deleteDir()
@@ -26,37 +26,31 @@ pipeline {
 
     stage('Verify app layout') {
       steps {
-        sh '''
-          if [ ! -f app/package.json ]; then
-            echo "ERROR: app/package.json not found. Ensure your Node app lives under ./app"
-            exit 1
-          fi
-        '''
+        sh 'test -f app/package.json || { echo "ERROR: app/package.json missing under ./app"; exit 1; }'
       }
     }
 
     stage('Install & Test (node:18-alpine)') {
-  dir('app') {
-    sh '''
-      docker run --rm \
-        -v $PWD:/app \
-        -w /app node:18-alpine sh -lc "
-          if [ -f package-lock.json ] || [ -f npm-shrinkwrap.json ]; then
-            npm ci || npm install
-          else
-            npm install
-          fi
-          npm test || echo 'No tests found'
-        "
-    '''
-  }
-}
+      steps {
+        dir('app') {
+          sh '''
+            docker run --rm -v "$PWD":/app -w /app node:18-alpine sh -lc "
+              if [ -f package-lock.json ] || [ -f npm-shrinkwrap.json ]; then
+                npm ci || npm install
+              else
+                npm install
+              fi
+              npm test || echo 'No tests found'
+            "
+          '''
+        }
+      }
+    }
 
     stage('GCP Auth & Docker Config') {
       steps {
         withCredentials([file(credentialsId: 'gcp-sa', variable: 'GCP_SA_FILE')]) {
           sh """
-            gcloud --version || true
             gcloud auth activate-service-account --key-file="$GCP_SA_FILE"
             gcloud config set project "$PROJECT_ID"
             gcloud config set run/region "$GCP_REGION"
@@ -73,9 +67,8 @@ pipeline {
       steps {
         sh '''
           IMAGE="${GCP_REGION}-docker.pkg.dev/${PROJECT_ID}/${AR_REPO}/myapp:${GIT_SHA}"
-          echo "Building image: $IMAGE"
-          docker build -t "$IMAGE" .
           echo "$IMAGE" > image.txt
+          docker build -t "$IMAGE" .
         '''
       }
     }
@@ -99,32 +92,22 @@ pipeline {
       steps {
         sh '''
           IMAGE="$(head -n1 image.txt)"
-          if [ "$BRANCH_NAME" = "main" ]; then
-            SVC="${SERVICE_PROD}"
-          else
-            SVC="${SERVICE_DEV}"
-          fi
-          echo "Deploying $SVC with $IMAGE in ${GCP_REGION}"
+          SVC=$([ "$BRANCH_NAME" = "main" ] && echo "${SERVICE_PROD}" || echo "${SERVICE_DEV}")
+          echo "Deploying $SVC with $IMAGE in $GCP_REGION"
           gcloud run deploy "$SVC" --image="$IMAGE" --region="$GCP_REGION" --allow-unauthenticated
           gcloud run services describe "$SVC" --region="$GCP_REGION" --format='value(status.url)' | tee deploy-url.txt
         '''
       }
     }
   }
+
   post {
     success {
       sh 'echo "Deployed URL: $(cat deploy-url.txt 2>/dev/null || echo N/A)"'
       archiveArtifacts artifacts: 'image.txt,deploy-url.txt', onlyIfSuccessful: true
     }
-    failure {
-      echo "Build failed. Check the stage logs above."
-    }
     always {
-      sh '''
-        echo "== Debug info =="
-        docker --version || true
-        gcloud --version || true
-      '''
+      sh 'echo "== Debug =="; docker --version || true; gcloud --version || true'
     }
   }
 }
