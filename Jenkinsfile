@@ -60,20 +60,32 @@ pipeline {
       }
     }
 
-    stage('GCP Auth & Docker Config') {
-      steps {
-        withCredentials([file(credentialsId: 'gcp-sa', variable: 'GCP_SA_FILE')]) {
-          // Use single-quoted heredoc so the secret path isn't Groovy-interpolated
-          sh '''
-            gcloud --version || true
-            gcloud auth activate-service-account --key-file="$GCP_SA_FILE"
-            gcloud config set project '"$PROJECT_ID"'
-            gcloud config set run/region '"$GCP_REGION"'
-            gcloud auth configure-docker '"$GCP_REGION"'-docker.pkg.dev -q
-          '''
-        }
-      }
+stage('GCP Auth & Docker Config') {
+  steps {
+    withCredentials([file(credentialsId: 'gcp-sa', variable: 'GCP_SA_FILE')]) {
+      sh """
+        gcloud --version || true
+
+        gcloud auth activate-service-account --key-file="$GCP_SA_FILE"
+
+        # ensure vars expand correctly (no literal "$PROJECT_ID")
+        gcloud config set project "$PROJECT_ID"
+        gcloud config set run/region "$GCP_REGION"
+
+        # make sure required APIs are enabled (idempotent & safe)
+        gcloud services enable \
+          run.googleapis.com \
+          artifactregistry.googleapis.com \
+          cloudresourcemanager.googleapis.com \
+          --quiet
+
+        # docker auth for Artifact Registry
+        gcloud auth configure-docker ${GCP_REGION}-docker.pkg.dev -q
+      """
     }
+  }
+}
+
 
     stage('Docker Build') {
       environment {
