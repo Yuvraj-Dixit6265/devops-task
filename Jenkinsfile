@@ -36,21 +36,21 @@ pipeline {
     }
 
     stage('Install & Test (node:18-alpine)') {
-      steps {
-        dir('app') {
-          sh '''
-            docker run --rm -v "$PWD":/app -w /app node:18-alpine sh -lc "
-              if [ -f package-lock.json ] || [ -f npm-shrinkwrap.json ]; then
-                npm ci || npm install
-              else
-                npm install
-              fi
-              npm test || echo 'No tests found'
-            "
-          '''
-        }
-      }
-    }
+  dir('app') {
+    sh '''
+      docker run --rm \
+        -v $PWD:/app \
+        -w /app node:18-alpine sh -lc "
+          if [ -f package-lock.json ] || [ -f npm-shrinkwrap.json ]; then
+            npm ci || npm install
+          else
+            npm install
+          fi
+          npm test || echo 'No tests found'
+        "
+    '''
+  }
+}
 
     stage('GCP Auth & Docker Config') {
       steps {
