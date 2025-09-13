@@ -15,13 +15,19 @@ pipeline {
       steps { checkout scm }
     }
     stage('Install & Test') {
-      steps {
-        dir('app') {
-          sh 'npm ci || npm install'
-          sh 'npm test || echo "No tests found"'
-        }
-      }
+  steps {
+    dir('app') {
+      sh '''
+        docker run --rm \
+          -v "$PWD":/app -w /app \
+          node:18-alpine sh -lc "
+            npm ci || npm install;
+            npm test || echo 'No tests found'
+          "
+      '''
     }
+  }
+}
     stage('Docker Build & Push') {
       steps {
         sh '''
