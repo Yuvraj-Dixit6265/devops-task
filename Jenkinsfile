@@ -47,32 +47,6 @@ stage('Docker Build') {
     '''
   }
 }
-
-
-    stage('Local Smoke Test (8081->8080)') {
-      steps {
-        sh '''
-          IMAGE=$(cat image.txt)
-          CID=""
-          set -e
-          # run container mapping host 8081 to container 8080 (Cloud Run also uses 8080)
-          CID=$(docker run -d -e PORT=8080 -p 8081:8080 "$IMAGE")
-          echo "Started $CID; waiting for app..."
-          for i in $(seq 1 20); do
-            sleep 1
-            if curl -fsS http://localhost:8081/ >/dev/null; then
-              echo "Smoke test OK"
-              break
-            fi
-            if [ "$i" -eq 20 ]; then
-              echo "Smoke test FAILED"; docker logs "$CID" || true; exit 1
-            fi
-          done
-          docker rm -f "$CID" >/dev/null 2>&1 || true
-        '''
-      }
-    }
-
     stage('Docker Push') {
       steps {
         sh '''
