@@ -1,6 +1,5 @@
 pipeline {
   agent any
-
   options {
     timestamps()
     disableConcurrentBuilds()
@@ -8,17 +7,13 @@ pipeline {
     skipDefaultCheckout(true)
     timeout(time: 30, unit: 'MINUTES')
   }
-
   environment {
-    // === EDIT THESE IF NEEDED ===
     PROJECT_ID   = "devopstask-472012"
     GCP_REGION   = "us-central1"
-    AR_REPO      = "myapp-repo"     // Artifact Registry repo name (Docker)
-    SERVICE_DEV  = "myapp-dev"      // Cloud Run service for dev branch
-    SERVICE_PROD = "myapp-prod"     // Cloud Run service for main branch
-    // =============================
+    AR_REPO      = "myapp-repo"
+    SERVICE_DEV  = "myapp-dev"
+    SERVICE_PROD = "myapp-prod"
   }
-
   stages {
 
     stage('Checkout') {
@@ -33,7 +28,7 @@ pipeline {
       steps {
         sh '''
           if [ ! -f app/package.json ]; then
-            echo "ERROR: app/package.json not found. Make sure your Node app is under ./app"
+            echo "ERROR: app/package.json not found. Ensure your Node app lives under ./app"
             exit 1
           fi
         '''
@@ -43,49 +38,33 @@ pipeline {
     stage('Install & Test (node:18-alpine)') {
       steps {
         dir('app') {
-          // Run npm steps inside an official Node container; no Node install on Jenkins needed
           sh '''
-            docker run --rm \
-              -v "$PWD":/app -w /app \
-              node:18-alpine sh -lc "
-                if [ -f package-lock.json ] || [ -f npm-shrinkwrap.json ]; then
-                  npm ci || npm install
-                else
-                  npm install
-                fi
-                npm test || echo 'No tests found'
-              "
+            docker run --rm -v "$PWD":/app -w /app node:18-alpine sh -lc "
+              if [ -f package-lock.json ] || [ -f npm-shrinkwrap.json ]; then
+                npm ci || npm install
+              else
+                npm install
+              fi
+              npm test || echo 'No tests found'
+            "
           '''
         }
       }
     }
 
-stage('GCP Auth & Docker Config') {
-  steps {
-    withCredentials([file(credentialsId: 'gcp-sa', variable: 'GCP_SA_FILE')]) {
-      sh """
-        gcloud --version || true
-
-        gcloud auth activate-service-account --key-file="$GCP_SA_FILE"
-
-        # ensure vars expand correctly (no literal "$PROJECT_ID")
-        gcloud config set project "$PROJECT_ID"
-        gcloud config set run/region "$GCP_REGION"
-
-        # make sure required APIs are enabled (idempotent & safe)
-        gcloud services enable \
-          run.googleapis.com \
-          artifactregistry.googleapis.com \
-          cloudresourcemanager.googleapis.com \
-          --quiet
-
-        # docker auth for Artifact Registry
-        gcloud auth configure-docker ${GCP_REGION}-docker.pkg.dev -q
-      """
+    stage('GCP Auth & Docker Config') {
+      steps {
+        withCredentials([file(credentialsId: 'gcp-sa', variable: 'GCP_SA_FILE')]) {
+          sh """
+            gcloud --version || true
+            gcloud auth activate-service-account --key-file="$GCP_SA_FILE"
+            gcloud config set project "$PROJECT_ID"
+            gcloud config set run/region "$GCP_REGION"
+            gcloud auth configure-docker ${GCP_REGION}-docker.pkg.dev -q
+          """
+        }
+      }
     }
-  }
-}
-
 
     stage('Docker Build') {
       environment {
@@ -106,8 +85,6 @@ stage('GCP Auth & Docker Config') {
         sh '''
           IMAGE="$(cat image.txt)"
           docker push "$IMAGE"
-
-          # On main, also tag & push :latest
           if [ "$BRANCH_NAME" = "main" ]; then
             LATEST="${GCP_REGION}-docker.pkg.dev/${PROJECT_ID}/${AR_REPO}/myapp:latest"
             docker tag "$IMAGE" "$LATEST"
@@ -127,20 +104,13 @@ stage('GCP Auth & Docker Config') {
           else
             SVC="${SERVICE_DEV}"
           fi
-
-          echo "Deploying ${SVC} with image ${IMAGE} in ${GCP_REGION}"
-          gcloud run deploy "$SVC" \
-            --image="$IMAGE" \
-            --region="$GCP_REGION" \
-            --allow-unauthenticated
-
-          echo "Describe service URL:"
+          echo "Deploying $SVC with $IMAGE in ${GCP_REGION}"
+          gcloud run deploy "$SVC" --image="$IMAGE" --region="$GCP_REGION" --allow-unauthenticated
           gcloud run services describe "$SVC" --region="$GCP_REGION" --format='value(status.url)' | tee deploy-url.txt
         '''
       }
     }
   }
-
   post {
     success {
       sh 'echo "Deployed URL: $(cat deploy-url.txt 2>/dev/null || echo N/A)"'
@@ -150,7 +120,6 @@ stage('GCP Auth & Docker Config') {
       echo "Build failed. Check the stage logs above."
     }
     always {
-      // Optional: show a few useful versions for debugging
       sh '''
         echo "== Debug info =="
         docker --version || true
