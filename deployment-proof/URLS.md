@@ -1,2 +1,5 @@
-Sat Sep 13 20:22:11 IST 2025 – trigger build
-Sat Sep 13 20:27:03 IST 2025 – trigger build
+## Git Repo:
+`https://github.com/Yuvraj-Dixit6265/devops-task.git`
+
+## Application URL
+`https://myapp-dev-582336748277.us-central1.run.app`
